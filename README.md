@@ -18,6 +18,7 @@ class Api(AbstractETL):
     def __init__(self):
         super().__init__("es.gov.br")
         self.database = {'guid': None, 'servidores': []}
+```
 		
 2. **Implemente o método de disponibilização dos dados**:  Implemente método o método obrigatório para disponibilização dos dados da fonte. No exemplo fornecido, o método `get_remuneracao`, obrigatório, é usado para disponibilizar dados de remuneração com base em um endereço de e-mail.
 
@@ -26,9 +27,10 @@ def get_remuneracao(self, email):
     servidor= self.get_remuneracao_por_tipo_origem(email, True)            
     if servidor == None:
         self.print_api("Nenhum servidor encontrado com base no email.")
+```
 
 
-3. **Implemente métodos de extração e processamento de dados**: Implemente métodos para extrair e processar os dados. No exemplo fornecido, do domínio `es.gov.br`, os métodos `filtrar_e_agrupar_via_api_servidores_por_email e `ler_csv_e_transformar_em_servidores` são usados para processar os dados extraídos. A grande maioria dos dados de transparência são disponibilizados em formato CSV, embora não seja o meio padrão utilizado para extração dos dados no domínio de exemplo, foi desenvolvido o método `ler_csv_e_transformar_em_servidores` que usa o CSV e pode servir de exemplo para outras iniciativas.
+3. **Implemente métodos de extração e processamento de dados**: Implemente métodos para extrair e processar os dados. No exemplo fornecido, do domínio `es.gov.br`, os métodos `filtrar_e_agrupar_via_api_servidores_por_email` e `ler_csv_e_transformar_em_servidores` são usados para processar os dados extraídos. A grande maioria dos dados de transparência são disponibilizados em formato CSV, embora não seja o meio padrão utilizado para extração dos dados no domínio de exemplo, foi desenvolvido o método `ler_csv_e_transformar_em_servidores` que usa o CSV e pode servir de exemplo para outras iniciativas.
 
 4. **Teste sua classe**: Depois de implementar sua classe, teste-a para garantir que ela esteja funcionando corretamente. Você pode fazer isso criando uma instância da classe e chamando seus métodos.
 
