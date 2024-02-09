@@ -5,7 +5,7 @@ Embora o objetivo desse projeto seja a disponibilização de dados públicos par
 
 ## Pré-requisitos
 
-Você deve ter um entendimento básico de Python e estar familiarizado com os pacotes listados no arquivo requirements.txt
+Você deve ter um entendimento básico de Python e estar familiarizado com os pacotes listados no arquivo `requirements.txt`.
 
 
 
