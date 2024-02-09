@@ -162,4 +162,8 @@ cython_debug/
 
 #monetometro
 logs/
-
+*_db.py
+*_listener.py
+main.py
+*.conf
+*.config
