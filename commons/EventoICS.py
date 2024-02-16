@@ -28,6 +28,7 @@ class EventoICS:
                 self.organizador = component.organizer.email
                 for item in component.attendees:
                     self.participantes.append(item.email)
+                self.participantes.append(component.organizer.email)
                 self.data_inicio = component.begin.datetime
                 self.data_fim = component.end.datetime
                 self.localizacao = component.location
@@ -51,11 +52,11 @@ class EventoICS:
         html = f"<h2>{self.resumo}</h2>"
         html += f"<p><strong>Organizador:</strong> {self.organizador}</p>"
         html += f"<p><strong>Participantes:</strong> {', '.join(self.participantes)}</p>"
-        html += f"<p><strong>Data de Início:</strong> {self.format_data(self.data_inicio)}</p>"
-        html += f"<p><strong>Data de Fim:</strong> {self.format_data(self.data_fim)}</p>"
+        html += f"<p><strong>Iniciando em:</strong> {self.format_data(self.data_inicio)}</p>"
+        html += f"<p><strong>Terminando em:</strong> {self.format_data(self.data_fim)}</p>"
         html += f"<p><strong>Local:</strong> {self.localizacao or ''}</p>"
-        html += f"<p><strong>Descrição:</strong> {self.descricao or ''}</p>"
-        html += f"<p><strong>Acompanhe em tempo real o custo médio do evento nesse link do MONETOMETRO:</strong> {self.monetometro_url}</p>"
+        html += f"<p><strong>Detalhamento:</strong> {self.descricao or ''}</p>"
+        html += f"<p><strong>Acompanhe o custo do evento em tempo real nesse link do MONETOMETRO:</strong> {self.monetometro_url}</p>"
         return html
 
     def format_data(self, data):
