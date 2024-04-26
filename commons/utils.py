@@ -1,4 +1,6 @@
 import importlib
+import io
+import traceback
 import os
 import importlib.util
 from datetime import datetime
@@ -47,6 +49,19 @@ def identificar_dominio(email, pasta_raiz):
 
     return None  # Retorna None se o domínio não corresponder a nenhum arquivo na hierarquia
 
+def listar_dominios(pasta_raiz):
+    modulos = []
+    for raiz, diretorios, arquivos in os.walk(pasta_raiz):
+        for arquivo in arquivos:
+            if arquivo.endswith('.py') and not arquivo.startswith('_'):
+                caminho_completo = os.path.join(raiz, arquivo)
+                modulo_nome = os.path.splitext(os.path.basename(arquivo))[0]
+                spec = importlib.util.spec_from_file_location(modulo_nome, caminho_completo)
+                modulo = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(modulo)
+                modulos.append(modulo.Api())
+    return modulos
+
 def carregar_script_do_dominio(dominio, pasta_raiz):
     try:
         dominio_com_underscore = dominio.replace('.', '_')
@@ -94,3 +109,28 @@ def log(texto):
         arquivo.write(texto_log)
     
     print(texto_log)
+
+
+def get_traceback_string():
+        root_directory  = get_configuration_value("ROOT_DIRECTORY")
+
+        # Criar um objeto StringIO para capturar a saída
+        trace_output = io.StringIO()
+        
+        # Chamar traceback.print_exc(), passando o stream como argumento
+        traceback.print_exc(file=trace_output)
+        
+        # Obter a string capturada
+        trace_string = trace_output.getvalue()
+
+        # Fechar o objeto StringIO
+        trace_output.close()
+        
+        # Obter os nomes dos diretórios filhos
+        subdirectories = next(os.walk(root_directory))[1]
+        
+        # Filtrar as linhas do traceback com base nos nomes dos diretórios filhos
+        filtered_lines = [(19 * " ") + line for line in trace_string.split('\n') if any(dir in line for dir in subdirectories)]
+        
+        # Retornar a string do traceback filtrada
+        return '\n  CUSTOM TRACEBACK:\n'+'\n'.join(filtered_lines)

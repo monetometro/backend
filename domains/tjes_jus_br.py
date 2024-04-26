@@ -1,34 +1,28 @@
-"""
+"""from
 Este script realiza operações em dados de servidores públicos obtidos do portal da transparência do Poder Judiciário do Espírito Santo - TJES.
 A estratégia utilizada para arquivos ODS consiste em:
     1 - Identificar o arquivo mensal de remunerações mais recente; [obter_links_arquivo_mais_recentes]
-    2 - Extrair todos os registros de remuneração transformando-os em objetos ServidorCSV; [ler_arquivo_e_transformar_em_servidores]
-    3 - Buscar na lista de ServidorCSV por um determinado email, para isso infere-se que a parte de login no email contenha 
-        o nome e sobrenome do servidor e que a parte do domínio do email contenha a sigla do órgão de lotação; [filtrar_e_agrupar_servidores_por_email]    
+    2 - Extrair todos os registros de remuneração transformando-os em um dataframe; [ler_arquivo_e_transformar_em_servidores]
+    3 - Buscar na lista de servidores por um determinado email, para isso infere-se que a parte de login no email contenha 
+        o nome e sobrenome do servidor e que a parte do domínio do email contenha a sigla do órgão de lotação; [self.filter_by_email_login(email)]    
         
 Autor: https://github.com/stgustavo
 Data: 2023-12-10
 
 """
 
-import requests
 from bs4 import BeautifulSoup
 import re
 import os
-from urllib import request
 import ezodf
 import io
-from io import StringIO
 import pandas as pd
-import csv
-from commons.ServidorCSV import ServidorCSV
 from commons.AbstractETL import AbstractETL 
-from unidecode import unidecode
 
 # Constantes
 URL_PORTAL_TRANSPARENCIA = "http://www.tjes.jus.br"
-PATH_PORTAL_REMUNERACOES = "/portal-da-transparencia/pessoal/folha-de-pagamento"
-PATH_PORTAL_ODS = ["/wp-content/uploads/{}"]
+PATH_PORTAL_REMUNERACOES = "/portal-transparencia/pessoal/folha-de-pagamento"
+PATH_PORTAL_ODS = "/wp-content/uploads/{}"
 
 class Api(AbstractETL):
     """
@@ -39,71 +33,18 @@ class Api(AbstractETL):
 
     """   
     def __init__(self):
-        super().__init__("tjes.jus.br",URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_REMUNERACOES)
-        # Crio uma variável para armazenar os dados em memória para otimizar a busca por mais de um email usando a mesma instancia da classe
-        self.database = {'arquivo': None, 'servidores': []}
+        super().__init__(dominio="tjes.jus.br",
+                         unidade_federativa="Espírito Santo",
+                    portal_remuneracoes_url=URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_REMUNERACOES,
+                    fn_obter_link_mais_recente=self.obter_links_arquivo_mais_recentes,
+                    fn_ler_fonte_de_dados_e_transformar_em_dataframe=self.ler_arquivo_e_transformar_em_servidores
+                    )
 
     def get_remuneracao(self, email):
-        servidor= self.get_remuneracao_tjes(email)            
-        if servidor == None:
-            self.print_api("Nenhum servidor encontrado com base no email.")
-        else:
-            servidor.email = email    
-            return servidor
-            
+        return self.run(email)           
 
-    def get_remuneracao_tjes(self, email):
-        """
-        Retorna um objeto ServidorCSV do portal da transparência baseado no email recebido.
-
-        Parameters:
-        - email (str): Endereço de email pertencente ao domínio tjes.jus.br.
-        
-        Returns:
-        - ServidorCSV: Uma classe ServidorCSV preenchida ou caso não encontre retornará None.  
-        """
-        arquivos_mais_recentes = self.obter_links_arquivo_mais_recentes(URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_REMUNERACOES)
-        if isinstance(arquivos_mais_recentes, list):
-            
-            # Inicializa um dicionário para armazenar os resultados agrupados
-            resultados_agrupados = {}
-            
-            servidores = self.get_database_by_link(arquivos_mais_recentes) or []
-
-            # Itera sobre cada arquivo mais recente e executa a rotina
-            if (servidores==[]):
-                for arquivo in arquivos_mais_recentes:                            
-                    for path in PATH_PORTAL_ODS:
-                        servidores.extend(self.ler_arquivo_e_transformar_em_servidores(URL_PORTAL_TRANSPARENCIA + path.format(arquivo)))
-            
-                self.add_to_database(arquivos_mais_recentes, servidores)
-            
-            filtrados = self.filtrar_e_agrupar_servidores_por_email(email, servidores)
-
-            # Dicionário para armazenar a soma total para cada combinação única de Nome e Orgao
-            resultados_agrupados = {}
-
-            # Itera sobre os itens filtrados
-            for item in filtrados:
-                chave = (item.nome, item.orgao)
-
-                # Adiciona o Valor ao total existente ou 0 se a chave não existir ainda
-                resultados_agrupados[chave] = resultados_agrupados.get(chave, 0) + item.valor
-
-            if resultados_agrupados:
-                for chave, valor in resultados_agrupados.items():
-                    nome, orgao = chave
-                    servidor = ServidorCSV(orgao=orgao, nome=nome, valor=valor)
-                    if servidor != None:
-                        self.print_api(f"Orgao: {servidor.orgao}, Nome: {servidor.nome}, Remuneração: {servidor.valor}")
-                        servidor.email = email
-                    return servidor
-            else:
-                return None
-        else:
-            return None
-
-    def obter_links_arquivo_mais_recentes(self, url_portal, num_links=2):
+    
+    def obter_links_arquivo_mais_recentes(self,num_links=2):
         """
         Obtém os links dos CSVs mais recentes do portal da transparência.
 
@@ -115,10 +56,8 @@ class Api(AbstractETL):
         - list or str: Lista de hrefs ou mensagem de erro.
         """
 
-        if self.database['arquivo']:
-            return self.database['arquivo']
-
-        response = requests.get(url_portal, verify=False)
+        url_portal = self.portal_remuneracoes_url
+        response = self.http_client.get(url_portal)
         
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -131,7 +70,6 @@ class Api(AbstractETL):
             if len(links_ods) >= num_links:
                 # Extrair os href relativos correspondentes aos títulos mais recentes
                 hrefs_mais_recentes = [os.path.basename(link) for link in links_ods[:num_links]]
-                self.database['arquivo'] = hrefs_mais_recentes
                 return hrefs_mais_recentes
             else:
                 self.print_api("Menos de 3 links encontrados com o padrão desejado.")
@@ -146,9 +84,9 @@ class Api(AbstractETL):
         if match:
             return match.group(1)
     
-    def ler_arquivo_e_transformar_em_servidores(self, url_ods, quantidade_linhas_header=8):
+    def ler_arquivo_e_transformar_em_servidores(self, lista_fontes_de_dados):
         """
-        Lê o conteúdo do ODS e o transforma em objetos ServidorCSV.
+        Lê o conteúdo do ODS e o transforma em um Dataframe.
 
         Parameters:
         - url (str): URL do ODS.
@@ -157,72 +95,43 @@ class Api(AbstractETL):
         - list or None: Lista de servidores ou None em caso de erro.
         """
         try:
-            # Faz a requisição e obtém o conteúdo do arquivo ODS
-            response = request.urlopen(url_ods)
-            conteudo_ods = response.read()
+            servidores = pd.DataFrame()
 
-            # Carrega o conteúdo ODS usando ezodf
-            doc = ezodf.opendoc(io.BytesIO(conteudo_ods))
+            for arquivo in lista_fontes_de_dados:
+                url_ods = URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_ODS.format(arquivo)
 
-            # Inicializa uma lista para armazenar os servidores
-            lista_de_servidores = []
+                # Faz a requisição e obtém o conteúdo do arquivo ODS
+                response = self.http_client.get(url_ods)
+                conteudo_ods = response.content
 
-            # Itera sobre as folhas do ODS (assumindo apenas uma folha)
-            sheet =  doc.sheets[0]
+                # Carrega o conteúdo ODS usando ezodf
+                doc = ezodf.opendoc(io.BytesIO(conteudo_ods))
 
-            contador_linha_branco=0
-            # Itera sobre as linhas da planilha
-            for linha in sheet.rows() if sheet is not None else []:
-                quantidade_linhas_header-=1
-                # Pula o cabeçalho ({quantidade_linhas_header} linhas)
-                if (quantidade_linhas_header) > 0 :
-                    next(sheet.rows())
+                # Itera sobre as folhas do ODS (assumindo apenas uma folha)
+                sheet =  doc.sheets[0]
+
+                dados_linhas = [col[:] for col in doc.sheets[2].columns()]
+                df = pd.DataFrame({col[0].value: [c.value for c in col[1:]] for col in dados_linhas})
+                df.replace({None: ''}, inplace=True)
+                palavras_excluir = ["DECIMO TERCEIRO", "13", " FER"]
+                df_filtrado = df[~df.iloc[:, 8].str.contains('|'.join(palavras_excluir))]
+                resultado = df_filtrado[df_filtrado['TIPO'] == 'C'].groupby('NOME')['VALOR'].sum()
+                resultado = resultado.reset_index()
+                resultado['REMUNERACAO_MENSAL_MEDIA'] = resultado.apply(lambda row: row['VALOR'] + row['VALOR']/3/12 + row['VALOR']/12, axis=1)
+                resultado['DOMINIO'] = self.dominio
+                resultado['SIGLA'] = "TJES"
+                resultado['ORGAO'] = "Tribunal de Justiça do Estado do Espírito Santo"
+                resultado = resultado[['NOME', 'REMUNERACAO_MENSAL_MEDIA', 'ORGAO', 'SIGLA', 'DOMINIO']]
+
+                if not servidores.empty:
+                    servidores = pd.concat([servidores, resultado], ignore_index=True)
                 else:
-                    # Verifica se linha não é None antes de tentar iterar
-                    valor_linha = [c.value for c in linha] if linha is not None else []
-                    if valor_linha[2] is not None:
-                        valor = float(str(valor_linha[11] if valor_linha[11] is not None else 0).replace(",", "."))  # Assume que o valor é uma representação numérica
-                        servidor = ServidorCSV('TJES', valor_linha[2], valor)
-                        lista_de_servidores.append(servidor)
-                    else:
-                        contador_linha_branco +=1
-                    if contador_linha_branco >=3:
-                        break
-
-            return lista_de_servidores
+                    servidores = resultado
+           
+            return servidores
 
         except Exception as e:
-            self.print_api(f"Erro ao ler o CSV: {e}")
-            return None
-        
-        
-    def filtrar_e_agrupar_servidores_por_email(self,email, lista_de_servidores):
-        """
-        Filtra servidores com base no email e agrupa por orgão e nome.
-
-        Parameters:
-        - email (str): Email para filtrar os servidores.
-        - lista_de_servidores (list): Lista de servidores para filtrar.
-        
-        Returns:
-        - dict or None: Dicionário agrupado por orgão e nome ou None em caso de erro.
-        """
-        # Extrair nome de usuário e domínio do email
-        # Extrair nome de usuário e domínio do email
-        match = re.match(r'^([^@]+)@([^@]+)$', email)
-        if match:
-            nome_usuario = match.group(1)
-
-            # Filtrar servidores com base no nome de usuário e sobrenome
-            servidores_filtrados = [
-                servidor for servidor in lista_de_servidores
-                if unidecode(nome_usuario.split('.')[0].lower()) in unidecode(servidor.nome.lower())
-                and unidecode(nome_usuario.split('.')[1].lower()) in unidecode(servidor.nome.lower())
-            ]
-            
-            return servidores_filtrados
-        else:
-            self.print_api("Formato de email inválido.")
+            self.print_api(f"Erro ao ler o CSV", e)
             return None
         
 

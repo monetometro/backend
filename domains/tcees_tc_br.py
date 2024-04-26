@@ -2,28 +2,25 @@
 Este script realiza operações em dados de servidores públicos obtidos do portal da dados abertos do estado do Espírito Santo.
 O objetivo geral é extrair o rendimento total de um servidor do tribunal de contas do ES. 
 O Tribunal disponibiliza um link estático que fornece os dados mais atualizados de remuneração dos seus servidores.
-    1 - Considerando que a URL é estática não necessita lógica para identificar o link mais recente;
-    2 - Buscar, via filtro por consulta API, os objetos ServidorCSV por um determinado email, para isso infere-se que a parte de login no email contenha 
-        o nome e sobrenome do servidor e que a parte do domínio do email contenha a sigla do órgão de lotação; [filtrar_e_agrupar_via_api_servidores_por_email]    
+A estratégia utilizada para arquivos CSV consiste em:
+    1 - Identificar a competencia mais recente; [get_competencia_mais_recente]
+    2 - Extrair todos os registros de remuneração transformando-os em um dataframe; [ler_csv_e_transformar_em_servidores]
+    3 - Buscar na lista de servidores por um determinado email, para isso infere-se que a parte de login no email contenha 
+        o nome e sobrenome do servidor e que a parte do domínio do email contenha a sigla do órgão de lotação; [self.filter_by_email_login(email)]  
 
 Autor: https://github.com/stgustavo
 Data: 2023-01-01
 
 """
 
-import requests
-from bs4 import BeautifulSoup
-import re
-import os
-import csv
-from urllib import request
 from io import StringIO
-from commons.ServidorCSV import ServidorCSV
+import pandas as pd
 from commons.AbstractETL import AbstractETL 
 
 # Constantes
 URL_PORTAL_TRANSPARENCIA = "https://dados.es.gov.br"
-PATH_PORTAL_SQL = '/api/3/action/datastore_search?q={nome}%{sobrenome}&resource_id={guid}'
+PATH_PORTAL_SQL = '/api/3/action/datastore_search?q={nome}{sobrenome}&resource_id={guid}'
+PATH_PORTAL_CSV = '/datastore/dump/{guid}?bom=True'
 GUID_DATASOURCE = 'f07af7e6-80f1-4726-b938-632123dfe30e'
 
 class Api(AbstractETL):
@@ -35,74 +32,76 @@ class Api(AbstractETL):
 
     """   
     def __init__(self):
-        super().__init__("tcees.tc.br",URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_SQL.format(guid=GUID_DATASOURCE, nome='', sobrenome=''))
+        super().__init__(dominio="tcees.tc.br",
+                         unidade_federativa="Espírito Santo",
+                        portal_remuneracoes_url=URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_SQL.format(guid=GUID_DATASOURCE, nome='', sobrenome=''),
+                        fn_obter_link_mais_recente=self.get_competencia_mais_recente,
+                        fn_ler_fonte_de_dados_e_transformar_em_dataframe=self.ler_csv_e_transformar_em_servidores
+                        )
+
 
     def get_remuneracao(self, email):
-        servidores = self.filtrar_e_agrupar_via_api_servidores_por_email(email, GUID_DATASOURCE)
-        servidor = ServidorCSV("TCEES", nome=servidores[0].nome, valor=servidores[0].valor) if servidores else None
+        return self.run(email)  
 
-        if servidor == None:
-            self.print_api("Nenhum servidor encontrado com base no email.")
-        else:
-            self.print_api(f"Orgao: TCEES, Nome: {servidor.nome}, Remuneração: {servidor.valor}")                 
-            servidor.email = email    
-            return servidor            
-        
-    def filtrar_e_agrupar_via_api_servidores_por_email(self,email, guidString):
+
+    def get_competencia_mais_recente(self):
+        guid_arquivo = GUID_DATASOURCE
+        # Construa a URL completa
+        url_completa = URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_SQL.format(guid=guid_arquivo, nome='',sobrenome='')
+
+        # Faça a chamada à API
+        response = self.http_client.get(url_completa)
+
+        # Verifique se a solicitação foi bem-sucedida (código de status 200)
+        if response.status_code == 200:
+            dados_api = response.json()
+
+            return [max((registro["Competencia"] for registro in dados_api["result"]["records"]), default=None)]
+        return ['00/0000']
+
+    def ler_csv_e_transformar_em_servidores(self, lista_fontes_de_dados):
         """
-        Consulta a API do dominio e retorna uma lista de ServidorCSV.
+        Lê o conteúdo do CSV e o transforma em um Dataframe.
 
         Parameters:
-        - email (str): Endereço de email pertencente ao domínio es.gov.br.
+        - url (str): URL do CSV.
 
         Returns:
-        - lista de ServidorCSV: Uma lista de objetos ServidorCSV preenchida ou caso não encontre retornará None.  
+        - list or None: Lista de servidores ou None em caso de erro.
         """
-        match = re.match(r'^([^@]+)@([^@]+)$', email)
-        if match:
-            nome_usuario = match.group(1)
+        try:
+            url = URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_CSV.format(guid=GUID_DATASOURCE)
+            max_competencia = lista_fontes_de_dados[0]
+            # Faz a requisição e obtém o conteúdo do CSV
+            response = self.http_client.get(url)
+            conteudo_csv = response.text
+
+            # Usa o módulo StringIO para transformar a string em um objeto "file-like"
+            arquivo_csv = StringIO(conteudo_csv)
+
+            # criar um dataframe das remunerações
+            df_remuneracoes = pd.read_csv(arquivo_csv, delimiter=',', usecols=[1, 6, 7, 9, 11], decimal=',')
+            df_remuneracoes = df_remuneracoes[df_remuneracoes['Competencia'] == max_competencia]
+            # Criar uma nova coluna com base na condição TipoEventro e na condição para "DescricaoEvento"
+            df_remuneracoes['REMUNERACAO_MENSAL_MEDIA'] = df_remuneracoes.apply(lambda row: 0 if any(substring in row["DescricaoEvento"] for substring in ["DECIMO TERCEIRO", "13", " FER"]) else (row.iloc[4] + row.iloc[4]/3/12 + row.iloc[4]/12 ) if row.iloc[2].lower() == 'c' else 0 if pd.notna(row.iloc[2]) else 0, axis=1)
+
+            df_remuneracoes = df_remuneracoes.drop(columns=["DescricaoEvento"])
+
+            # Criar um DataFrame agrupado
+            df_agrupado = df_remuneracoes.groupby([df_remuneracoes.iloc[:, 0]]).agg({
+                'REMUNERACAO_MENSAL_MEDIA': 'sum',
+            }).reset_index()
+
+            df_agrupado['ORGAO'] = 'Tribunal de Contas do Estado do Espírito Santo'
+            df_agrupado['SIGLA'] = 'TCEES'
+            df_agrupado['DOMINIO'] = self.dominio
+
+            return df_agrupado
+
+        except Exception as e:
+            self.print_api("Erro ao ler o CSV", e)
+            return None
             
-            # Construa a URL completa
-            url_completa = URL_PORTAL_TRANSPARENCIA + PATH_PORTAL_SQL.format(guid=guidString, nome=nome_usuario.split('.')[0], sobrenome=nome_usuario.split('.')[1] if '.' in nome_usuario else '')
-
-            # Faça a chamada à API
-            response = requests.get(url_completa, verify=False)
-
-            # Verifique se a solicitação foi bem-sucedida (código de status 200)
-            if response.status_code == 200:
-                dados_api = response.json()
-
-                # Inicializa um dicionário para armazenar os resultados agrupados
-                resultados_agrupados = {}
-                maior_competencia = max((registro["Competencia"] for registro in dados_api["result"]["records"]), default=None)
-
-                # Itera sobre cada registro no JSON retornado pela API
-                for registro in dados_api["result"]["records"]:
-                    # Aplica o filtro para remover linhas de 13º salário e férias
-                    if maior_competencia in registro["Competencia"] and not ("FERIAS" in registro["DescricaoEvento"] or "13" in registro["DescricaoEvento"] or " FÉRIAS" in registro["DescricaoEvento"]):
-                        chave = (registro["Nome"])
-
-                        # Converte o valor para float
-                        valor = float(registro["Valor"].replace(",", "."))
-
-                        # Atualiza os resultados agrupados
-                        if chave in resultados_agrupados:
-                            if registro["TipoEvento"] == "C":
-                                resultados_agrupados[chave] += valor                                
-                        else:
-                            if registro["TipoEvento"] == "C":
-                                resultados_agrupados[chave] = valor   
-                    
-                
-                # Adiciona 1/12 (Decimo Terceiro) e 1/3/12 (percentual Férias para um mês) do valor ao resultado durante a criação da lista servidores_agrupados
-                servidores_agrupados = [ServidorCSV("TCEES", nome, valor + valor/12 + valor/3/12) for (nome), valor in resultados_agrupados.items()]
-
-                return servidores_agrupados
-            else:
-                # Se a solicitação não for bem-sucedida, trate o erro conforme necessário
-                self.print_api(f"Falha na solicitação à API. Código de status: {response.status_code}")
-                return None    
-
 
 # Exemplo de utilização
 if __name__ == "__main__":

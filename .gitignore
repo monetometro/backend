@@ -167,3 +167,8 @@ logs/
 main.py
 *.conf
 *.config
+flask*.py
+index.html
+domains/_*br.py
+*_db.py
+/cache

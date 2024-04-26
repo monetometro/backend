@@ -5,20 +5,25 @@ Embora o objetivo desse projeto seja a disponibilização de dados públicos par
 
 ## Pré-requisitos
 
-Você deve ter um entendimento básico de Python e estar familiarizado com os pacotes listados no arquivo `requirements.txt`.
+Você deve ter um entendimento básico de Python e estar familiarizado com as seguintes bibliotecas:
 
-
+- `requests`
+- `BeautifulSoup`
+- `re`
+- `os`
+- `csv`
+- `urllib.request`
+- `io.StringIO`
 
 ## Passos
 
-1. **Defina sua classe**: Comece definindo sua classe e o método `get_remuneracao` que é obrigatório e deve estar presente em sua classe para integração no monetometro. No exemplo fornecido, a classe `Api` é definida e herda de `commons.AbstractETL`.
+1. **Defina sua classe**: Comece definindo sua classe e o método `get_remuneracao` que é obrigatório e deve estar presente em sua classe para integração no monetometro. No exemplo fornecido, a classe `Api` é definida, que herda de `ApiInterface`.
 
 ```python
-class Api(AbstractETL):
+class Api(ApiInterface):
     def __init__(self):
         super().__init__("es.gov.br")
         self.database = {'guid': None, 'servidores': []}
-```
 		
 2. **Implemente o método de disponibilização dos dados**:  Implemente método o método obrigatório para disponibilização dos dados da fonte. No exemplo fornecido, o método `get_remuneracao`, obrigatório, é usado para disponibilizar dados de remuneração com base em um endereço de e-mail.
 
@@ -27,10 +32,9 @@ def get_remuneracao(self, email):
     servidor= self.get_remuneracao_por_tipo_origem(email, True)            
     if servidor == None:
         self.print_api("Nenhum servidor encontrado com base no email.")
-```
 
 
-3. **Implemente métodos de extração e processamento de dados**: Implemente métodos para extrair e processar os dados. No exemplo fornecido, do domínio `es.gov.br`, os métodos `filtrar_e_agrupar_via_api_servidores_por_email` e `ler_csv_e_transformar_em_servidores` são usados para processar os dados extraídos. A grande maioria dos dados de transparência são disponibilizados em formato CSV, embora não seja o meio padrão utilizado para extração dos dados no domínio de exemplo, foi desenvolvido o método `ler_csv_e_transformar_em_servidores` que usa o CSV e pode servir de exemplo para outras iniciativas.
+3. **Implemente métodos de extração e processamento de dados**: Implemente métodos para extrair e processar os dados. No exemplo fornecido, do domínio `es.gov.br`, os métodos `filtrar_e_agrupar_via_api_servidores_por_email e `ler_csv_e_transformar_em_servidores` são usados para processar os dados extraídos. A grande maioria dos dados de transparência são disponibilizados em formato CSV, embora não seja o meio padrão utilizado para extração dos dados no domínio de exemplo, foi desenvolvido o método `ler_csv_e_transformar_em_servidores` que usa o CSV e pode servir de exemplo para outras iniciativas.
 
 4. **Teste sua classe**: Depois de implementar sua classe, teste-a para garantir que ela esteja funcionando corretamente. Você pode fazer isso criando uma instância da classe e chamando seus métodos.
 

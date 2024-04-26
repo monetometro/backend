@@ -3,7 +3,7 @@ Este script realiza operações em dados de servidores públicos obtidos do port
 O objetivo geral é extrair o rendimento total de um servidor da Assembleia Legislativa do ES. 
 O Tribunal disponibiliza um link estático que fornece os dados mais atualizados de remuneração dos seus servidores.
     1 - Considerando que a URL é estática não necessita lógica para identificar o link mais recente;
-    2 - Buscar, via filtro por consulta API, os objetos ServidorCSV por um determinado email, para isso infere-se que a parte de login no email contenha 
+    2 - Buscar, via filtro por consulta API, os objetos servidores por um determinado email, para isso infere-se que a parte de login no email contenha 
         o nome e sobrenome do servidor e que a parte do domínio do email contenha a sigla do órgão de lotação; [filtrar_e_agrupar_via_api_servidores_por_email]    
 
 Autor: https://github.com/stgustavo
@@ -15,14 +15,10 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import os
-import csv
 import json
-from urllib import request
-from io import StringIO
-from commons.ServidorCSV import ServidorCSV
+import pandas as pd
 from commons.AbstractETL import AbstractETL 
-from unidecode import unidecode
-
+from concurrent.futures import ThreadPoolExecutor
 
 # Constantes
 URL_PORTAL_TRANSPARENCIA = "https://www.al.es.gov.br/Transparencia/ListagemServidoresTable"
@@ -38,57 +34,71 @@ class Api(AbstractETL):
 
     """   
     def __init__(self):
-        super().__init__("al.es.gov.br",URL_PORTAL_TRANSPARENCIA)
+        super().__init__(dominio="al.es.gov.br",
+                         unidade_federativa="Espírito Santo",
+                    portal_remuneracoes_url=URL_PORTAL_TRANSPARENCIA,
+                    fn_obter_link_mais_recente=self.obter_links_competencia_mais_recentes,
+                    fn_ler_fonte_de_dados_e_transformar_em_dataframe=self.ler_dados_e_transformar_em_servidores
+                    )
+
 
     def get_remuneracao(self, email):
-        # 1) Descobrir a matricula do servidor e vínculo mais recente
-        lista_matriculas = self.extrair_json_pagina(URL_PORTAL_TRANSPARENCIA)
-                
-        lista_servidores_filtro = self.filtrar_e_agrupar_servidores_por_email(email, lista_matriculas)
-        servidor_ales = lista_servidores_filtro[0] if lista_servidores_filtro else None
-
-        matricula_vinculo = self.obter_vinculo_mais_recente(servidor_ales.get('Matricula'))
-        # 3) extrair json do HTML que contem os dados de salário. extrair_json_do_html(matricula)
-        json = self.extrair_json_pagina(URL_CONSULTA_SALARIOS.format(matricula=matricula_vinculo),False)
-        # 4) extrair último salário. extrair_salario_base(json_data)
-        salario = self.extrair_remuneracao_media_mensal(json)
-
-        servidor = ServidorCSV("ALES", nome=servidor_ales.get("Nome"), valor=salario)
-        if servidor != None:
-            self.print_api(f"Orgao: {servidor.orgao}, Nome: {servidor.nome}, Remuneração: {servidor.valor}")
-            servidor.email = email
-            return servidor
-        else:
-            return None
-        
-
-    def filtrar_e_agrupar_servidores_por_email(self,email, lista_de_servidores):
-        """
-        Filtra servidores com base no email e agrupa por orgão e nome.
-
-        Parameters:
-        - email (str): Email para filtrar os servidores.
-        - lista_de_servidores (list): Lista de servidores para filtrar.
-        
-        Returns:
-        - dict or None: Dicionário agrupado por orgão e nome ou None em caso de erro.
-        """
-        # Extrair nome de usuário e domínio do email
-        match = re.match(r'^([^@]+)@([^@]+)$', email)
-        if match:
-            nome_usuario = match.group(1)
-
-            # Filtrar servidores com base no nome de usuário e sobrenome
-            servidores_filtrados = [
-                servidor for servidor in lista_de_servidores
-                if unidecode(nome_usuario.split('.')[0].lower()) in unidecode(servidor.get("Nome").lower())
-                and unidecode(nome_usuario.split('.')[1].lower()) in unidecode(servidor.get("Nome").lower())
-            ]            
-            return servidores_filtrados
-        else:
-            self.print_api("Formato de email inválido.")
-            return None
+        return self.run(email)  
     
+    def obter_links_competencia_mais_recentes(self):
+        # 1) Descobrir a matricula do servidor e vínculo mais recente
+        lista_matriculas = self.extrair_json_pagina(self.portal_remuneracoes_url)
+        
+        ### Como não existe arquivo único para definir a competencia (mês) dos dados divulgados é feito uma consulta amostral para identificar o mês mais recente com dados disponibilizados
+        ### Inicio Cálculo amostral de Competencia
+
+        contagem_competencias = {}
+
+        # Função para contar as ocorrências da competência
+        def contar_competencia(matricula):
+            competencia = self.get_competencia_mais_recente(self.extrair_json_pagina(URL_CONSULTA_SALARIOS.format(matricula=self.obter_vinculo_mais_recente(matricula)), False))
+            contagem_competencias[competencia] = contagem_competencias.get(competencia, 0) + 1
+
+        # Usar ThreadPoolExecutor para executar as iterações em paralelo
+        with ThreadPoolExecutor() as executor:
+            # Mapear as iterações para threads
+            executor.map(contar_competencia, [matricula["Matricula"] for matricula in lista_matriculas[:5]])
+
+        # Encontrar a competência mais frequente
+        resultado = [max(contagem_competencias, key=contagem_competencias.get)]
+        self.lista_matriculas = self.extrair_json_pagina(self.portal_remuneracoes_url)
+        return resultado
+        ### Fim Cálculo amostral de Competencia
+
+
+    def ler_dados_e_transformar_em_servidores(self, lista_fontes_de_dados):
+        try:
+            competencia_mais_recente = lista_fontes_de_dados[0]
+            lista_matriculas = self.lista_matriculas
+            database_path = self.get_database_by_link(competencia_mais_recente)
+            servidores = pd.DataFrame()
+
+            if not os.path.exists(database_path):                
+                for servidor_ales in lista_matriculas:
+                    matricula_vinculo = self.obter_vinculo_mais_recente(servidor_ales.get('Matricula'))
+                    # 3) extrair json do HTML que contem os dados de salário. 
+                    json = self.extrair_json_pagina(URL_CONSULTA_SALARIOS.format(matricula=matricula_vinculo),False)
+                    if json != None:
+                        # 4) extrair último salário. extrair_salario_base(json_data)
+                        salario = self.extrair_remuneracao_media_mensal(json,competencia_mais_recente)
+
+                        data = {"ORGAO":"Assembleia Legislativa do Estado do Espírito Santo", "NOME":servidor_ales.get("Nome"), "REMUNERACAO_MENSAL_MEDIA":salario, "SIGLA":"ALES", "DOMINIO":self.dominio}
+
+                        if servidores.empty:
+                            servidores = pd.DataFrame([data])
+                        else:
+                            servidores = pd.concat([servidores, pd.DataFrame([data])], ignore_index=True)
+
+            return servidores
+        except Exception as e:
+            self.print_api(f"Erro ao ler dados", e)
+            return None
+            
     def organizar_json_string(self, string):
         # Encontrar todos os objetos JSON na string
         matches = re.findall(r'\{.*?\}', string)
@@ -113,7 +123,7 @@ class Api(AbstractETL):
     def extrair_json_do_html(self,matricula):
 
         # Fazer a requisição para obter o conteúdo da página
-        response = requests.get(URL_CONSULTA_SALARIOS.format(matricula=matricula), verify=False)
+        response = self.http_client.get(URL_CONSULTA_SALARIOS.format(matricula=matricula))
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -125,13 +135,22 @@ class Api(AbstractETL):
             return script_content
 
         return None
+    
+    def get_competencia_mais_recente(self, json_data):
+        lista_salario_base  = next((item for item in json_data if item.get('NomeCampo') == 'ValorSalarioBase'), None)
+        tupla_mes_salario_base = max(((chave, valor) for chave, valor in lista_salario_base.items() if chave.startswith("Valor") and isinstance(valor, (int, float)) and valor > 0), key=lambda x: x[0][-2:])
+        atributo_mes, valor_salario_base = tupla_mes_salario_base
+        return atributo_mes
 
-    def extrair_remuneracao_media_mensal(self, json_data):
+    def extrair_remuneracao_media_mensal(self, json_data, competencia=None):
         try:
-
             lista_salario_base  = next((item for item in json_data if item.get('NomeCampo') == 'ValorSalarioBase'), None)
-            tupla_mes_salario_base = next(((f'Valor{i}', lista_salario_base[f'Valor{i}']) for i in range(12, 0, -1) if lista_salario_base.get(f'Valor{i}') is not None), None)
-            atributo_mes, valor_salario_base = tupla_mes_salario_base
+            if competencia == None:                
+                tupla_mes_salario_base = max(((chave, valor) for chave, valor in lista_salario_base.items() if chave.startswith("Valor") and isinstance(valor, (int, float)) and valor > 0), key=lambda x: x[0][-2:])
+                atributo_mes, valor_salario_base = tupla_mes_salario_base
+            else:
+                atributo_mes = competencia
+                valor_salario_base = lista_salario_base.get(competencia)
 
             lista_outras_remuneracoes  = next((item for item in json_data if item.get('NomeCampo') == 'ValorOutrasRemuneracoes'), None)
 
@@ -166,7 +185,7 @@ class Api(AbstractETL):
     def extrair_json_pagina(self, url, foundByArray=True):
         try:
             # Fazer a requisição para obter o conteúdo da página
-            response = requests.get(url, verify=False)
+            response = self.http_client.get(url)
             response.raise_for_status()
 
             # Usar uma expressão regular para encontrar padrões JSON
@@ -195,7 +214,7 @@ class Api(AbstractETL):
     def obter_vinculo_mais_recente(self, matricula):
         try:
             # Fazer a requisição para obter o conteúdo JSON da URL
-            response = requests.get(URL_CONSULTA_VINCULOS.format(matricula=matricula), verify=False)
+            response = self.http_client.get(URL_CONSULTA_VINCULOS.format(matricula=matricula))
             response.raise_for_status()
 
             # Converter o conteúdo JSON para uma lista de dicionários
