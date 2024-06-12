@@ -91,9 +91,7 @@ class Api(AbstractETL):
                             response = self.http_client.head(url)
 
                             # Verificar o código de status da resposta
-                            if response.status_code == 200 and ((sistema_origem == "BACEN" and 
-                                                                 int(response.headers.get('content-length', 0))>100*1024) or (sistema_origem == "SIAPE" and 
-                                                                                                                              int(response.headers.get('content-length', 0))>50000*1024)):
+                            if response.status_code == 200:
                                 lista_sistema_origem.remove(sistema_origem)
                                 anos_meses_validos.append((ano_mes_atual, sistema_origem))
                                 break  # Parar o loop assim que encontrar um ano_mes_atual válido

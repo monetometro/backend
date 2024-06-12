@@ -18,7 +18,6 @@ import re
 from io import StringIO
 import pandas as pd
 from commons.AbstractETL import AbstractETL 
-import unicodedata
 
 # Constantes
 URL_PORTAL_TRANSPARENCIA = "https://www.transparencia.mg.gov.br"
@@ -68,19 +67,13 @@ class Api(AbstractETL):
             match = re.search(padrao, response.text)
             if match:
                 mes_str, ano = match.groups()
-                meses_com_acento = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
-                meses_sem_acento = [self.remover_acentos(mes) for mes in meses_com_acento]
-                mes_lower = self.remover_acentos(mes_str.lower())
-                if mes_lower in meses_sem_acento:
-                    mes = str(meses_sem_acento.index(mes_lower) + 1).zfill(2)
-                    return [mes + ano[-2:]]
-                else:
-                    return None
+                meses = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+                mes = str(meses.index(mes_str.lower()) + 1).zfill(2)  # Convertendo o nome do mês para número e preenchendo com zero à esquerda, se necessário
+                return [mes + ano[-2:]]
             else:
                 return None
             
-    def remover_acentos(self, texto):
-        return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
+
     
     def ler_csv_e_transformar_em_servidores(self, lista_fontes_de_dados):
         """
