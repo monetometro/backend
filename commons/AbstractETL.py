@@ -344,7 +344,7 @@ class AbstractETL:
         con = duckdb.connect(caminho_arquivo)
         try:
 
-            query = "SELECT DISTINCT ORGAO, NOME, REMUNERACAO_MENSAL_MEDIA, DOMINIO, SIGLA FROM servidores WHERE (LOWER(NOME) like ? OR LOWER(REPLACE(NOME,' ','')) like ?) AND (concat(SIGLA,'.',DOMINIO) LIKE ? OR DOMINIO LIKE ?)"
+            query = "SELECT DISTINCT ORGAO, NOME, REMUNERACAO_MENSAL_MEDIA, DOMINIO, SIGLA FROM servidores WHERE (LOWER(NOME) like LOWER(?) OR LOWER(REPLACE(NOME,' ','')) like LOWER(?)) AND (LOWER(concat(SIGLA,'.',DOMINIO)) LIKE LOWER(?) OR DOMINIO LIKE LOWER(?))"
             params = [f'%{nome}%{sobrenome}%', f'{nome}%{sobrenome}%', f'%{dominio}', f'%{dominio}']
 
             # Executar a consulta

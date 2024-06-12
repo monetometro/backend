@@ -129,8 +129,9 @@ class Api(AbstractETL):
             df_agrupado = df_remuneracoes.groupby([df_remuneracoes.iloc[:, 0], df_remuneracoes.iloc[:, 1]]).agg({
                 'REMUNERACAO_MENSAL_MEDIA': 'sum',
             }).reset_index()
+            df_agrupado = df_agrupado.rename(columns={df_agrupado.columns[0]:'ORGAO',df_agrupado.columns[1]:'NOME'})
 
-            df_agrupado['SIGLA'] = df_agrupado.iloc[:, 0].fillna(0).str.lower()
+            #df_agrupado['SIGLA'] = df_agrupado.iloc[:, 0].fillna(0).str.lower()
             #df_agrupado['DOMINIO'] = df_agrupado.iloc[:, 0].fillna(0).str.lower() + ".es.gov.br"
 
             domains = self.get_cache_domains(df_agrupado.iloc[:, 0].unique().astype(str).tolist())
@@ -139,7 +140,7 @@ class Api(AbstractETL):
 
             df_agrupado = pd.merge(df_agrupado, df_domains, left_on= df_agrupado.iloc[:, 0], right_on="ORGAO")
 
-            return df_agrupado
+            return df_agrupado[['NOME', 'REMUNERACAO_MENSAL_MEDIA', 'ORGAO', 'SIGLA', 'DOMINIO']]                                
 
         except Exception as e:
             self.print_api(f"Erro ao ler o CSV", e)
